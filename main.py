@@ -23,7 +23,7 @@ os.makedirs(APP_DIR, exist_ok=True)
 # If modifying these scopes, delete the file token.json.
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 CLIENT_SECRET_FILE = os.environ.get('GMAIL_CHECKER_SECRET_PATH', os.path.join(os.environ['HOME'], '.mygmail_client_secret.json'))
-FETCH_COUNT = 10
+FETCH_COUNT = int(os.environ.get('GMAIL_CHECKER_FETCH_COUNT', 10))
 STORAGE_FILE = os.path.join(APP_DIR, "gmail.storage")
 quiet = False
 

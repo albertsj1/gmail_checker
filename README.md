@@ -1,6 +1,6 @@
 # Gmail Checker
 
-This script provides a command-line interface to check for new messages in a Gmail account.
+This script provides a command-line interface to check for new messages in a Gmail account.  I use it with [SketchyBar](https://github.com/FelixKratz/SketchyBar) in a custom plugin to show how many unread messages I have and a list on hover.  There is a `mark_as_read` functionality; however, it does not actually mark the email as read.  It simply hides those emails and future checks will only show new emails since you last ran the `mark_as_read` command.
 
 ## Installation
 
@@ -53,6 +53,8 @@ uv run main.py [command]
 ```bash
 uv run --project ~/<project_path> ~/<project_path>/main.py [command]
 ```
+
+The default is only show the last 10 unread.  This can be customized by setting a `GMAIL_CHECKER_FETCH_COUNT` variable.
 
 ### Available Commands
 
