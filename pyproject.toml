@@ -1,7 +1,7 @@
 [project]
 name = "gmail-checker"
 version = "0.1.0"
-description = "Add your description here"
+description = "A command-line tool to check Gmail for new messages and manage read status."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
