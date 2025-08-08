@@ -8,6 +8,7 @@ import argparse
 from datetime import datetime
 from email.utils import parsedate_to_datetime, parseaddr
 import concurrent.futures
+from pyexpat.errors import messages
 import tempfile
 
 from google.auth.transport.requests import Request
@@ -29,7 +30,16 @@ quiet = False
 
 
 def get_service():
-    """Gets an authorized Gmail API service instance."""
+    """
+    Returns an authorized Gmail API service instance.
+
+    Returns:
+        Resource: An authorized Gmail API service instance.
+
+    Raises:
+        FileNotFoundError: If the client secret file does not exist.
+        Exception: If there is an error during the authorization process.
+    """
     creds = None
     token_path = os.path.join(APP_DIR, "token.json")
     if os.path.exists(token_path):
@@ -45,6 +55,50 @@ def get_service():
         with open(token_path, "w") as token:
             token.write(creds.to_json())
     return build("gmail", "v1", credentials=creds)
+
+def get_query_string():
+    """
+    Constructs the Gmail API query string based on the last saved timestamp.
+
+    Returns:
+        str: The query string to use for fetching messages.
+    """
+    last_timestamp = None
+    if os.path.exists(STORAGE_FILE):
+        with open(STORAGE_FILE, "r") as f:
+            last_timestamp = f.read().strip()
+
+    query_parts = ["is:important", "is:unread"]
+    if last_timestamp:
+        try:
+            # Add 1 second to the timestamp to avoid showing the last message again
+            query_parts.append(f"after:{(int(last_timestamp) // 1000) + 1}")
+        except ValueError:
+            print(f"Warning: Invalid timestamp found in {STORAGE_FILE}. Ignoring.")
+
+    return " ".join(query_parts)
+
+def get_messages(service):
+    """
+    Fetches messages from the Gmail API based on the constructed query string.
+
+    Args:
+        service (Resource): The Gmail API service instance.
+
+    Returns:
+        list: A list of message metadata dictionaries.
+    """
+    try:
+        results = (
+            service.users()
+            .messages()
+            .list(userId="me", q=get_query_string(), maxResults=FETCH_COUNT)
+            .execute()
+        )
+        return results.get("messages", [])
+    except HttpError as error:
+        print(f"An error occurred: {error}")
+        return []
 
 
 def mark_last_message_as_read():
@@ -63,60 +117,30 @@ def mark_last_message_as_read():
 
 
 def check_messages():
-    """Shows basic usage of the Gmail API.
-    Lists the user's Gmail messages.
+    """
+    Checks for new messages since the last saved timestamp.
+    Prints message count in a more user-friendly format.
     """
     service = get_service()
+    messages = get_messages(service)
 
-    last_timestamp = None
-    if os.path.exists(STORAGE_FILE):
-        with open(STORAGE_FILE, "r") as f:
-            last_timestamp = f.read().strip()
-
-    query_parts = ["is:important", "is:unread"]
-    if last_timestamp:
-        try:
-            # Add 1 second to the timestamp to avoid showing the last message again
-            query_parts.append(f"after:{(int(last_timestamp) // 1000) + 1}")
-        except ValueError:
-            print(f"Warning: Invalid timestamp found in {STORAGE_FILE}. Ignoring.")
-            # Optionally, you could delete the file here:
-            # os.remove(STORAGE_FILE)
-
-    query = " ".join(query_parts)
-
-
-    try:
-        # Call the Gmail API
-        results = (
-            service.users().messages().list(userId="me", q=query, maxResults=FETCH_COUNT).execute()
-        )
-        messages = results.get("messages", [])
-
-        if not messages:
-            if not quiet:
-                print("No new messages found.")
-            return
-
-        print(f"New messages: {len(messages)}")
-        # show 1 message
-
-        # print(json.dumps(service.users().messages().get(userId="me", id=messages[0]["id"]).execute()))
+    if not messages:
+        if not quiet:
+            print("No new messages found.")
         return
-        for message in messages:
-            print(f'Message ID: {message["id"]}')
-            msg = (
-                service.users().messages().get(userId="me", id=message["id"]).execute()
-            )
-            print(f'  Subject: {msg["snippet"]}')
-
-    except HttpError as error:
-        # TODO(developer) - Handle errors from gmail API.
-        print(f"An error occurred: {error}")
-
+    else:
+        print(f"New messages: {len(messages)}")
 
 def fetch_message_details(message):
-    """Fetches and parses details for a single message."""
+    """
+    Fetches and parses details for a single message.
+
+    Args:
+        message (dict): The message metadata dictionary.
+
+    Returns:
+        tuple: A tuple containing the sender, subject, and date of the message.
+    """
     service = get_service()  # Create a new service object for each thread
     msg = service.users().messages().get(userId="me", id=message["id"]).execute()
     headers = msg["payload"]["headers"]
@@ -147,32 +171,13 @@ def fetch_message_details(message):
 
 
 def list_messages():
-    """Lists new messages since last saved check timestamp."""
+    """
+    Prints a list of new messages since the last saved check timestamp.
+    """
     service = get_service()
 
-    last_timestamp = None
-    if os.path.exists(STORAGE_FILE):
-        with open(STORAGE_FILE, "r") as f:
-            last_timestamp = f.read().strip()
-
-    query_parts = ["is:important", "is:unread"]
-    if last_timestamp:
-        try:
-            # Add 1 second to the timestamp to avoid showing the last message again
-            query_parts.append(f"after:{(int(last_timestamp) // 1000) + 1}")
-        except ValueError:
-            print(f"Warning: Invalid timestamp found in {STORAGE_FILE}. Ignoring.")
-
-    query = " ".join(query_parts)
-
     try:
-        results = (
-            service.users()
-            .messages()
-            .list(userId="me", q=query, maxResults=FETCH_COUNT)
-            .execute()
-        )
-        messages = results.get("messages", [])
+        messages = get_messages(service)
 
         if not messages:
             if not quiet:
@@ -206,37 +211,13 @@ def list_messages():
 
 
 def unread_count():
-    """Counts the number of unread messages based on the last check."""
+    """
+    Prints the number of unread messages based on the last check.
+    """
     service = get_service()
+    messages = get_messages(service)
 
-    last_timestamp = None
-    if os.path.exists(STORAGE_FILE):
-        with open(STORAGE_FILE, "r") as f:
-            last_timestamp = f.read().strip()
-
-    query_parts = ["is:important", "is:unread"]
-    if last_timestamp:
-        try:
-            # Add 1 second to the timestamp to avoid showing the last message again
-            query_parts.append(f"after:{(int(last_timestamp) // 1000) + 1}")
-        except ValueError:
-            print(f"Warning: Invalid timestamp found in {STORAGE_FILE}. Ignoring.")
-
-    query = " ".join(query_parts)
-
-    try:
-        results = (
-            service.users()
-            .messages()
-            .list(userId="me", q=query, maxResults=FETCH_COUNT)
-            .execute()
-        )
-        messages = results.get("messages", [])
-        print(len(messages))
-
-    except HttpError as error:
-        print(f"An error occurred: {error}")
-
+    print(len(messages))
 
 def clear_read_status():
     """
@@ -262,8 +243,8 @@ def main():
         default="help",
         help="""The command to run:
   check         - Check for new messages since last 'mark_as_read'.
-  list          - List new messages.
-  unread_count  - Show the count of new unread messages.
+  list          - List new messages since the last 'mark_as_read'.
+  unread_count  - Show the count of new unread messages since the last 'mark_as_read'.
   mark_as_read  - Mark all current messages as read.
   clear_read    - Clear the 'read' status to see all messages again.
   help          - Display this help message.
